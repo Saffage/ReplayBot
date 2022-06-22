@@ -7,10 +7,6 @@ include(libraries/mat-dash/include.cmake)
 
 project(replay-bot)
 
-if (${CMAKE_BUILD_TYPE} STREQUAL "RelWithDebInfo")
-  add_compile_definitions(SHOW_CONSOLE)
-endif()
-
 add_compile_definitions(UNICODE _UNICODE)
 
 file(
@@ -28,9 +24,6 @@ execute_process(
   OUTPUT_VARIABLE COMMIT_HASH
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-
-configure_file("${CMAKE_SOURCE_DIR}/src/version.hpp.in"
-               "${CMAKE_SOURCE_DIR}/src/version.hpp")
 
 target_include_directories(replay-bot PRIVATE
   libraries/gd.h/include

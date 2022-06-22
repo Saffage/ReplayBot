@@ -148,12 +148,23 @@ void ReplaySystem::handle_playing() {
 // why here out of all places? idk
 
 constexpr int STATUS_LABEL_TAG = 10032;
+constexpr int FRAME_LABEL_TAG = 10034;
 
 auto _create_status_label(CCLayer* layer) {
     auto label = CCLabelBMFont::create("", "chatFont.fnt");
     label->setTag(STATUS_LABEL_TAG);
     label->setAnchorPoint({0, 0});
     label->setPosition({5, 5});
+    label->setZOrder(999);
+    layer->addChild(label);
+    return label;
+}
+
+auto _create_frame_label(CCLayer* layer) {
+    auto label = CCLabelBMFont::create("", "chatFont.fnt");
+    label->setTag(FRAME_LABEL_TAG);
+    label->setAnchorPoint({1, 0});
+    label->setPosition({560, 5});
     label->setZOrder(999);
     layer->addChild(label);
     return label;
@@ -175,11 +186,29 @@ void ReplaySystem::_update_status_label() {
                 label->setString("Recording");
                 break;
             case PLAYING:
-                label->setString(showcase_mode ? "" : "Playing");
+                label->setString(status_text ? "Playing" : "");
                 break;
         }
     } else if (recorder.m_recording) {
         recorder.stop();
+    }
+}
+
+void ReplaySystem::_update_frame_label() {
+    auto play_layer = gd::GameManager::sharedState()->getPlayLayer();
+    auto& rs = ReplaySystem::get();
+    auto& replay = rs.get_replay();
+    if (play_layer) {
+        auto label = cast<CCLabelBMFont*>(play_layer->getChildByTag(FRAME_LABEL_TAG));
+        if (!label)
+            label = _create_frame_label(play_layer);
+        std::stringstream stream;
+        if (replay.get_type() == ReplayType::FRAME)
+            stream << unsigned(rs.get_frame());
+        else
+            stream << std::setprecision(3) << std::fixed <<
+            float(play_layer->m_player1->m_position.x);
+        label->setString(frame_label ? stream.str().c_str() : " ");
     }
 }
 
@@ -195,7 +224,8 @@ void ReplaySystem::save() {
     file << "fps=" << default_fps << '\n';
     file << "type=" << static_cast<int>(default_type) << '\n';
     file << "real_time=" << real_time_mode << '\n';
-    file << "showcase_mode=" << showcase_mode << '\n';
+    file << "status_text=" << status_text << '\n';
+    file << "frame_label=" << frame_label << '\n';
     file << "recorder_width=" << recorder.m_width << '\n';
     file << "recorder_height=" << recorder.m_height << '\n';
     file << "recorder_fps=" << recorder.m_fps << '\n';
@@ -225,8 +255,10 @@ void ReplaySystem::load() {
                 default_type = ReplayType(std::stoi(std::string(value)));
             else if (key == "real_time"sv)
                 real_time_mode = value == "1"sv;
-            else if (key == "showcase_mode"sv)
-                showcase_mode = value == "1"sv;
+            else if (key == "status_text"sv)
+                status_text = value == "1"sv;
+            else if (key == "frame_label"sv)
+                frame_label = value == "1"sv;
             else if (key == "recorder_width"sv)
                 recorder.m_width = std::stoul(std::string(value));
             else if (key == "recorder_height"sv)
@@ -250,4 +282,19 @@ void ReplaySystem::load() {
         // no care
     }
 
+}
+
+std::string ReplaySystem::change_file_extension(const std::string& path, std::string extension) {
+	auto newpath = path;
+
+	for (auto i = unsigned(size(newpath)) - 1;;--i) {
+		if (i == 0)
+            return path;
+		else if (newpath[i] == '.') {
+			newpath.erase(i + 1, size(newpath));
+			return newpath + extension;
+		}
+        else if (newpath[i] == '\\')
+            return newpath + "." + extension;
+	}
 }

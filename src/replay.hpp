@@ -3,14 +3,11 @@
 #include <string>
 #include <iostream>
 
-enum ReplayType : std::uint8_t {
-    XPOS,
-    FRAME
-};
+enum ReplayType { XPOS, FRAME };
 
 struct Action {
-    union {
-	    float x;
+	union {
+        float x;
         unsigned frame;
     };
 	bool hold;

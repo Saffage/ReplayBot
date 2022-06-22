@@ -4,7 +4,7 @@
 #include <sstream>
 #include "recorder_layer.hpp"
 #include "nodes.hpp"
-#include "version.hpp"
+#include "version.h"
 #include <filesystem>
 
 bool OverlayLayer::init() {
@@ -15,11 +15,7 @@ bool OverlayLayer::init() {
     auto win_size = CCDirector::sharedDirector()->getWinSize();
     auto& rs = ReplaySystem::get();
 
-    static bool has_loaded = false;
-    if (!has_loaded) {
-        has_loaded = true;
-        rs.load();
-    }
+    rs.load(); // load config every time you open this menu
         
     auto menu = CCMenu::create();
     menu->setPosition({0, win_size.height});
@@ -86,36 +82,17 @@ bool OverlayLayer::init() {
     label->setPosition({win_size.width - 55, win_size.height - 85});
     addChild(label);
 
-    auto* toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OverlayLayer::on_toggle_real_time));
-    toggle->setPosition({win_size.width - 35, -120});
-    toggle->toggle(rs.real_time_mode);
-    menu->addChild(toggle);
+    auto* const options_sprite = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
+    options_sprite->setScale(0.67f);
 
-    label = CCLabelBMFont::create("Real Time", "bigFont.fnt");
+    btn = gd::CCMenuItemSpriteExtra::create(options_sprite, this, menu_selector(OverlayLayer::on_options));
+    btn->setPosition({win_size.width - 35, -120});
+    menu->addChild(btn);
+
+    label = CCLabelBMFont::create("Settings", "bigFont.fnt");
     label->setAnchorPoint({1, 0.5});
     label->setScale(0.6f);
     label->setPosition({win_size.width - 55, win_size.height - 120});
-    addChild(label);
-
-    // TODO: add some info button to nodes.hpp
-    menu->addChild(
-        NodeFactory<gd::CCMenuItemSpriteExtra>::start(
-            NodeFactory<CCSprite>::start(CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png")).setScale(.525f).finish(),
-            this, menu_selector(OverlayLayer::on_info_real_time)
-        )
-        .setPosition(ccp(win_size.width - 11, -109))
-        .setZOrder(-1)
-    );
-
-    toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OverlayLayer::on_toggle_showcase));
-    toggle->setPosition({win_size.width - 35, -155});
-    toggle->toggle(!rs.showcase_mode);
-    menu->addChild(toggle);
-
-    label = CCLabelBMFont::create("Status Text", "bigFont.fnt");
-    label->setAnchorPoint({1, 0.5});
-    label->setScale(0.6f);
-    label->setPosition({win_size.width - 55, win_size.height - 155});
     addChild(label);
 
     btn = gd::CCMenuItemSpriteExtra::create(CCSprite::create("GJ_button_01.png"), this, menu_selector(OverlayLayer::on_recorder));
@@ -132,13 +109,13 @@ bool OverlayLayer::init() {
         draw_node->setPosition(btn->getNormalImage()->getContentSize() / 2.f);
     }
     btn->getNormalImage()->setScale(0.775f);
-    btn->setPosition({win_size.width - 35, -190});
+    btn->setPosition({win_size.width - 35, -155});
     menu->addChild(btn);
 
     addChild(NodeFactory<CCLabelBMFont>::start("Internal Renderer", "bigFont.fnt")
         .setAnchorPoint(ccp(1, 0.5))
         .setScale(0.6f)
-        .setPosition(win_size - ccp(55, 190))
+        .setPosition(win_size - ccp(55, 155))
     );
 
     m_replay_info = CCLabelBMFont::create("", "chatFont.fnt");
@@ -186,6 +163,12 @@ void OverlayLayer::update_info_text() {
     stream << "Current Replay:\nFPS: " << replay.get_fps();
     stream << "\nActions: " << replay.get_actions().size();
     stream << "\nMode: " << (replay.get_type() == ReplayType::XPOS ? "X Pos" : "Frame");
+    if (replay.get_type() == ReplayType::XPOS) {
+        stream << "\n\nX Pos: " << std::setprecision(10) << std::fixed << 
+        float(gd::GameManager::sharedState()->getPlayLayer()->m_player1->m_position.x);
+    } else if (replay.get_type() == ReplayType::FRAME) {
+        stream << "\n\nFrame: " << unsigned(rs.get_frame());
+    }
     m_replay_info->setString(stream.str().c_str());
 }
 
@@ -194,19 +177,55 @@ void OverlayLayer::FLAlert_Clicked(gd::FLAlertLayer* alert, bool btn2) {
         if (alert->getTag() == 44) {
             CCApplication::sharedApplication()->openURL("https://www.gyan.dev/ffmpeg/builds/");
         } else {
-            _handle_load_replay();
+            if (alert->getTag() == 1 || alert->getTag() == 2) {
+                auto& rs = ReplaySystem::get();
+                rs.toggle_recording();
+                update_info_text();
+            }
+            if (alert->getTag() == 3) {
+                _handle_load_replay();
+            }
+        }
+    }
+    if (btn2) {
+        if (alert->getTag() == 1 || alert->getTag() == 2) {
+            m_record_toggle->toggle(false);
             update_info_text();
         }
     }
 }
 
+void OverlayLayer::on_options(CCObject*) {
+    OptionsLayer::create(this)->show();
+}
+
 void OverlayLayer::on_record(CCObject*) {
     auto& rs = ReplaySystem::get();
-    if (rs.is_recording())
+    auto& replay = rs.get_replay();
+    if (!rs.is_recording()) {
+        if (rs.get_replay().get_actions().empty()) {
+            rs.toggle_recording();
+            update_info_text();
+        } else if (rs.get_default_fps() == replay.get_fps()) {
+            auto alert = gd::FLAlertLayer::create(this,
+                "Warning",
+                "Ok",
+                "Cancel",
+                "This will <cr>overwrite</c> all <cb>actions</c> after your current position."
+            );
+            alert->setTag(2);
+            alert->show();
+        } else {
+            auto alert = gd::FLAlertLayer::create(this,
+            "Warning",
+            "Ok",
+            "Cancel",
+            "This will <cr>overwrite</c> your currently loaded replay.");
+            alert->setTag(1);
+            alert->show();
+        }
+    } else {
         rs.toggle_recording();
-    else {
-        m_record_toggle->toggle(true);
-        RecordOptionsLayer::create(this)->show();
     }
 }
 
@@ -218,9 +237,9 @@ void OverlayLayer::on_play(CCObject*) {
 
 void OverlayLayer::on_save(CCObject*) {
     nfdchar_t* path = nullptr;
-    auto result = NFD_SaveDialog("replay", nullptr, &path);
+    auto result = NFD_SaveDialog("rply", nullptr, &path);
     if (result == NFD_OKAY) {
-        ReplaySystem::get().get_replay().save(path);
+        ReplaySystem::get().get_replay().save(ReplaySystem::change_file_extension(path, "rply"));
         gd::FLAlertLayer::create(nullptr, "Info", "Ok", nullptr, "Replay saved.")->show();
         free(path);
     }
@@ -228,7 +247,7 @@ void OverlayLayer::on_save(CCObject*) {
 
 void OverlayLayer::_handle_load_replay() {
     nfdchar_t* path = nullptr;
-    auto result = NFD_OpenDialog("replay", nullptr, &path);
+    auto result = NFD_OpenDialog("rply,replay", nullptr, &path);
     if (result == NFD_OKAY) {
         ReplaySystem::get().get_replay() = Replay::load(path);
         update_info_text();
@@ -247,7 +266,7 @@ void OverlayLayer::on_load(CCObject*) {
         "Ok",
         "Cancel",
         "This will <cr>overwrite</c> your currently loaded replay.");
-        alert->setTag(2);
+        alert->setTag(3);
         alert->show();
     }
 }
@@ -255,20 +274,6 @@ void OverlayLayer::on_load(CCObject*) {
 void OverlayLayer::keyBackClicked() {
     ReplaySystem::get().save();
     gd::FLAlertLayer::keyBackClicked();
-}
-
-void OverlayLayer::on_toggle_real_time(CCObject* toggle_) {
-    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
-    if (toggle != nullptr) {
-        ReplaySystem::get().real_time_mode = !toggle->isOn(); // why is it flipped
-    }
-}
-
-void OverlayLayer::on_toggle_showcase(CCObject* toggle_) {
-    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
-    if (toggle != nullptr) {
-        ReplaySystem::get().showcase_mode = toggle->isOn();
-    }
 }
 
 void OverlayLayer::on_recorder(CCObject*) {
@@ -300,13 +305,7 @@ void OverlayLayer::on_recorder(CCObject*) {
     RecorderLayer::create()->show();
 }
 
-void OverlayLayer::on_info_real_time(CCObject*) {
-    FLAlertLayer::create(nullptr, "Info", "OK", nullptr,
-        "Will try to run the game at full speed even if the fps doesn't match with the replay's fps.\n"
-        "Only in effect when recording or playing.")->show();
-}
-
-bool RecordOptionsLayer::init(OverlayLayer* parent) {
+bool OptionsLayer::init(OverlayLayer* parent) {
     m_parent = parent;
 
     auto win_size = cocos2d::CCDirector::sharedDirector()->getWinSize();
@@ -316,7 +315,7 @@ bool RecordOptionsLayer::init(OverlayLayer* parent) {
     addChild(m_pLayer);
 
     auto bg = cocos2d::extension::CCScale9Sprite::create("GJ_square01.png");
-    const CCSize window_size(250, 150);
+    const CCSize window_size(300, 250);
     bg->setContentSize(window_size);
     bg->setPosition(win_size / 2);
     bg->setZOrder(-5);
@@ -341,43 +340,135 @@ bool RecordOptionsLayer::init(OverlayLayer* parent) {
     );
 
     auto* const check_off_sprite = CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png");
-    check_off_sprite->setScale(0.6f);
+    check_off_sprite->setScale(0.75f);
     auto* const check_on_sprite = CCSprite::createWithSpriteFrameName("GJ_checkOn_001.png");
-    check_on_sprite->setScale(0.6f);
+    check_on_sprite->setScale(0.75f);
 
-    m_x_pos_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(RecordOptionsLayer::on_x_pos));
-    m_x_pos_toggle->setPosition(20.f, -43.f);
+    m_x_pos_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_x_pos));
+    m_x_pos_toggle->setPosition(30, -40);
     menu->addChild(m_x_pos_toggle);
 
     layer->addChild(
         NodeFactory<CCLabelBMFont>::start("X Pos", "bigFont.fnt")
         .setScale(0.5f)
-        .setPosition(top_left + ccp(33, -42))
-        .setAnchorPoint(ccp(0, .5f))
+        .setPosition(top_left + ccp(50, -40.5f))
+        .setAnchorPoint(ccp(0, 0.5f))
     );
 
-    m_frame_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(RecordOptionsLayer::on_frame));
-    m_frame_toggle->setPosition(150.f, -43.f);
+    m_frame_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_frame));
+    m_frame_toggle->setPosition(170, -40);
     menu->addChild(m_frame_toggle);
 
     layer->addChild(
         NodeFactory<CCLabelBMFont>::start("Frame", "bigFont.fnt")
         .setScale(0.5f)
-        .setPosition(top_left + ccp(163, -42))
-        .setAnchorPoint(ccp(0, .5f))
+        .setPosition(top_left + ccp(190, -40.5f))
+        .setAnchorPoint(ccp(0, 0.5f))
+    );
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Options", "bigFont.fnt")
+        .setScale(0.5f)
+        .setPosition(top_left + ccp(10, -67))
+        .setAnchorPoint(ccp(0, 0.5f))
     );
 
     auto& rs = ReplaySystem::get();
 
-    if (rs.get_default_type() == ReplayType::XPOS)
-        m_x_pos_toggle->toggle(true);
-    else
+    // TODO: add some info button to nodes.hpp
+    menu->addChild(
+        NodeFactory<gd::CCMenuItemSpriteExtra>::start(
+            NodeFactory<CCSprite>::start(CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png")).setScale(.5f).finish(),
+            this, menu_selector(OptionsLayer::on_real_time_info)
+        )
+        .setPosition(10, -80)
+        .setZOrder(-1)
+    );
+
+    m_real_time_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_real_time_toggle));
+    m_real_time_toggle->setPosition(30, -90);
+    menu->addChild(m_real_time_toggle);
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Real Time", "bigFont.fnt")
+        .setScale(0.4f)
+        .setPosition(top_left + ccp(50, -90.5f))
+        .setAnchorPoint(ccp(0, .5f))
+    );
+
+    m_status_text_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_status_text_toggle));
+    m_status_text_toggle->setPosition(30, -125);
+    menu->addChild(m_status_text_toggle);
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Status Text", "bigFont.fnt")
+        .setScale(0.4f)
+        .setPosition(top_left + ccp(50, -125.5f))
+        .setAnchorPoint(ccp(0, .5f))
+    );
+
+    m_frame_label_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_frame_label_toggle));
+    m_frame_label_toggle->setPosition(30, -160);
+    menu->addChild(m_frame_label_toggle);
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Frame Label", "bigFont.fnt")
+        .setScale(0.4f)
+        .setPosition(top_left + ccp(50, -160.5f))
+        .setAnchorPoint(ccp(0, .5f))
+    );
+
+    m_dual_type_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_dual_type_toggle));
+    m_dual_type_toggle->setPosition(170, -90);
+    menu->addChild(m_dual_type_toggle);
+    _update_type_buttons();
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Dual Type", "bigFont.fnt")
+        .setScale(0.4f)
+        .setPosition(top_left + ccp(190, -90.5f))
+        .setAnchorPoint(ccp(0, .5f))
+    );
+
+    m_plain_text_toggle = gd::CCMenuItemToggler::create(check_off_sprite, check_on_sprite, this, menu_selector(OptionsLayer::on_plain_text_toggle));
+    m_plain_text_toggle->setPosition(170, -125);
+    menu->addChild(m_plain_text_toggle);
+
+    layer->addChild(
+        NodeFactory<CCLabelBMFont>::start("Plain Text", "bigFont.fnt")
+        .setScale(0.4f)
+        .setPosition(top_left + ccp(190, -125.5f))
+        .setAnchorPoint(ccp(0, .5f))
+    );
+
+    rs.real_time_mode ?
+        m_real_time_toggle->toggle(true):
+        m_real_time_toggle->toggle(false);
+
+    rs.status_text ?
+        m_status_text_toggle->toggle(true):
+        m_status_text_toggle->toggle(false);
+
+    rs.frame_label ?
+        m_frame_label_toggle->toggle(true):
+        m_frame_label_toggle->toggle(false);
+
+    rs.dual_type_mode ?
+        m_dual_type_toggle->toggle(true):
+        m_dual_type_toggle->toggle(false);
+
+    rs.plain_text_macro ?
+        m_plain_text_toggle->toggle(true):
+        m_plain_text_toggle->toggle(false);
+
+    rs.get_default_type() == ReplayType::XPOS ?
+        m_x_pos_toggle->toggle(true):
         m_frame_toggle->toggle(true);
 
     layer->addChild(NodeFactory<CCLabelBMFont>::start("FPS", "bigFont.fnt")
         .setAnchorPoint(ccp(0, 0.5f))
         .setScale(0.7f)
-        .setPosition(top_left + ccp(10, -75))
+        .setPosition(top_left + ccp(10, -225))
     );
 
     m_fps_input = NumberInputNode::create(CCSize(64.f, 30.f));
@@ -385,23 +476,15 @@ bool RecordOptionsLayer::init(OverlayLayer* parent) {
     m_fps_input->set_value(static_cast<int>(rs.get_default_fps()));
     m_fps_input->input_node->setMaxLabelScale(0.7f);
     m_fps_input->input_node->setMaxLabelLength(10);
-    m_fps_input->setPosition(top_left + ccp(100, -75));
+    m_fps_input->setPosition(top_left + ccp(100, -225));
     layer->addChild(m_fps_input);
 
     menu->addChild(
         NodeFactory<gd::CCMenuItemSpriteExtra>::start(
-            gd::ButtonSprite::create("Record", 90, true, "goldFont.fnt", "GJ_button_01.png", 30.f, 0.7f),
-            this, menu_selector(RecordOptionsLayer::on_record)
-        )
-        .setPosition(ccp(125, -125))
-    );
-
-    menu->addChild(
-        NodeFactory<gd::CCMenuItemSpriteExtra>::start(
             NodeFactory<CCSprite>::start(CCSprite::createWithSpriteFrameName("GJ_closeBtn_001.png")).setScale(.75f).finish(),
-            this, menu_selector(RecordOptionsLayer::on_close)
+            this, menu_selector(OptionsLayer::on_close)
         )
-        .setPosition(ccp(18.f, win_size.height - 18.f) - top_left)
+        .setPosition(ccp(0, 0))
     );
 
     setKeypadEnabled(true);
@@ -411,65 +494,101 @@ bool RecordOptionsLayer::init(OverlayLayer* parent) {
     return true;
 }
 
-void RecordOptionsLayer::keyBackClicked() {
+void OptionsLayer::keyBackClicked() {
     update_default_fps();
     setKeyboardEnabled(false);
     removeFromParentAndCleanup(true);
 }
 
-void RecordOptionsLayer::on_close(CCObject*) {
+void OptionsLayer::on_close(CCObject*) {
     keyBackClicked();
 }
 
-void RecordOptionsLayer::on_x_pos(CCObject*) {
+void OptionsLayer::on_x_pos(CCObject*) {
     m_x_pos_toggle->toggle(false);
     m_frame_toggle->toggle(false);
     ReplaySystem::get().set_default_type(ReplayType::XPOS);
 }
 
-void RecordOptionsLayer::on_frame(CCObject*) {
+void OptionsLayer::on_frame(CCObject*) {
     m_x_pos_toggle->toggle(false);
     m_frame_toggle->toggle(false);
     ReplaySystem::get().set_default_type(ReplayType::FRAME);
 }
 
-void RecordOptionsLayer::update_default_fps() {
-    ReplaySystem::get().set_default_fps(static_cast<float>(m_fps_input->get_value()));
-}
-
-void RecordOptionsLayer::on_record(CCObject*) {
-    update_default_fps();
-    auto& rs = ReplaySystem::get();
-    if (!rs.is_recording()) {
-        if (rs.get_replay().get_actions().empty()) {
-            rs.toggle_recording();
-            m_parent->update_info_text();
-            m_parent->m_record_toggle->toggle(true);
-            m_parent->m_play_toggle->toggle(false);
-            this->keyBackClicked();
-        } else {
-            auto alert = gd::FLAlertLayer::create(
-                this,
-                "Warning",
-                "Ok",
-                "Cancel",
-                "This will <cr>overwrite</c> your currently loaded replay."
-            );
-            alert->show();
-        }
-    } else {
-        m_parent->m_record_toggle->toggle(false);
-        rs.toggle_recording();
+void OptionsLayer::on_real_time_toggle(CCObject* toggle_) {
+    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
+    if (toggle != nullptr) {
+        ReplaySystem::get().real_time_mode = !toggle->isOn();
     }
 }
 
-void RecordOptionsLayer::FLAlert_Clicked(gd::FLAlertLayer*, bool btn2) {
-    if (!btn2) {
-        auto& rs = ReplaySystem::get();
-        rs.toggle_recording();
-        m_parent->update_info_text();
-        this->keyBackClicked();
-        m_parent->m_record_toggle->toggle(true);
-        m_parent->m_play_toggle->toggle(false);
+void OptionsLayer::on_status_text_toggle(CCObject* toggle_) {
+    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
+    if (toggle != nullptr) {
+        ReplaySystem::get().status_text = !toggle->isOn();
+    }
+}
+
+void OptionsLayer::on_frame_label_toggle(CCObject* toggle_) {
+    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
+    if (toggle != nullptr) {
+        ReplaySystem::get().frame_label = !toggle->isOn();
+    }
+}
+
+void OptionsLayer::on_dual_type_toggle(CCObject* toggle_) {
+    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
+    auto& rs = ReplaySystem::get();
+    if (toggle != nullptr) {
+        if (rs.is_recording()) {
+            m_dual_type_toggle->toggle(!rs.dual_type_mode);
+            FLAlertLayer::create(nullptr, "Warning", "OK", nullptr,
+                "Disable <cr>recording</c> mode if you want to change <cb>this</c> option.")->show();
+            return;
+        }
+        rs.dual_type_mode = !toggle->isOn();
+        _update_type_buttons();
+    }
+}
+
+void OptionsLayer::on_plain_text_toggle(CCObject* toggle_) {
+    auto toggle = cast<gd::CCMenuItemToggler*>(toggle_);
+    if (toggle != nullptr) {
+        ReplaySystem::get().plain_text_macro = !toggle->isOn();
+    }
+}
+
+void OptionsLayer::update_default_fps() {
+    ReplaySystem::get().set_default_fps(static_cast<float>(m_fps_input->get_value()));
+}
+
+void OptionsLayer::on_real_time_info(CCObject*) {
+    FLAlertLayer::create(nullptr, "Info", "OK", nullptr,
+        "Will try to run the game at full speed even if the fps doesn't match with the replay's fps.\n"
+        "Only in effect when recording or playing.")->show();
+}
+
+void OptionsLayer::FLAlert_Clicked(gd::FLAlertLayer* alert, bool btn2) {
+    // do nothing
+}
+
+void OptionsLayer::_update_type_buttons() {
+    auto& rs = ReplaySystem::get();
+    if (!rs.dual_type_mode) {
+        m_x_pos_toggle->setEnabled(true);
+        m_frame_toggle->setEnabled(true);
+        if (rs.get_default_type() == ReplayType::XPOS) {
+            m_x_pos_toggle->toggle(true);
+            m_frame_toggle->toggle(false);
+        } else {
+            m_x_pos_toggle->toggle(false);
+            m_frame_toggle->toggle(true);
+        }
+    } else {
+        m_x_pos_toggle->setEnabled(false);
+        m_frame_toggle->setEnabled(false);
+        m_x_pos_toggle->toggle(true);
+        m_frame_toggle->toggle(true);
     }
 }

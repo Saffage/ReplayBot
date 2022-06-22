@@ -4,11 +4,7 @@
 #include "recorder.hpp"
 
 // this is a rly bad name
-enum RSState {
-    NOTHING,
-    RECORDING,
-    PLAYING
-};
+enum RSState { NOTHING, RECORDING, PLAYING };
 
 class ReplaySystem {
     float default_fps;
@@ -77,8 +73,15 @@ public:
     void save();
     void load();
 
+    void _update_frame_label();
+
+    static std::string change_file_extension(const std::string& path, std::string extension);
+
     bool real_time_mode = true; // fuck it we going public
-    bool showcase_mode = false;
+    bool status_text = false;
+    bool frame_label = false;
+    bool dual_type_mode = false;
+    bool plain_text_macro = false;
     Recorder recorder;
     bool should_restart_next_time = false; // this is a great name i know
     float speed_hack = 1.f;

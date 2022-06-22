@@ -12,6 +12,7 @@ float g_left_over = 0.f;
 void CCScheduler_update(CCScheduler* self, float dt) {
     auto& rs = ReplaySystem::get();
     const auto play_layer = gd::GameManager::sharedState()->getPlayLayer();
+    rs._update_frame_label();
     if (play_layer && (rs.recorder.m_recording || rs.is_playing() || rs.is_recording()) && !play_layer->m_isPaused) {
         const auto fps = rs.get_replay().get_fps();
         auto speedhack = self->getTimeScale();
@@ -157,7 +158,7 @@ bool PauseLayer_init(gd::PauseLayer* self) {
         auto win_size = CCDirector::sharedDirector()->getWinSize();
         
         auto menu = CCMenu::create();
-        menu->setPosition(35, win_size.height - 40.f);
+        menu->setPosition(win_size.width - 50.f, -1 * win_size.height + 350.f);
         self->addChild(menu);
         
         auto sprite = CCSprite::create("GJ_button_01.png");
@@ -165,11 +166,11 @@ bool PauseLayer_init(gd::PauseLayer* self) {
         auto btn = gd::CCMenuItemSpriteExtra::create(sprite, self, menu_selector(OverlayLayer::open_btn_callback));
         menu->addChild(btn);
         
-        auto label = CCLabelBMFont::create("ReplayBot", "bigFont.fnt");
-        label->setAnchorPoint({0, 0.5});
-        label->setScale(0.5f);
-        label->setPositionX(20);
-        menu->addChild(label);
+        auto label = CCLabelBMFont::create("R", "goldFont.fnt");
+        label->setAnchorPoint({0.5, 0.5});
+        label->setScale(0.9f);
+        label->setPosition(15, 17);
+        btn->addChild(label);
         return true;
     }
     return false;
